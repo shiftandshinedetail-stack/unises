@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>In-Browser Offline AI</title>
+    <!-- Tailwind CSS for UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col justify-between">
+
+    <!-- Header -->
+    <header class="bg-gray-800 p-4 border-b border-gray-700 text-center font-bold text-lg">
+        100% Client-Side AI (No Server / Offline-Ready)
+    </header>
+
+    <!-- Chat Box -->
+    <main id="chat-container" class="flex-1 overflow-y-auto p-4 space-y-4 max-w-3xl w-full mx-auto">
+        <div class="flex justify-start">
+            <div id="status-bubble" class="bg-yellow-600 text-white p-3 rounded-lg max-w-lg">
+                Initializing model... (First load requires downloading model weights into browser cache).
+            </div>
+        </div>
+    </main>
+
+    <!-- Input Form -->
+    <footer class="bg-gray-800 p-4 border-t border-gray-700">
+        <form id="chat-form" class="max-w-3xl mx-auto flex gap-2">
+            <input 
+                type="text" 
+                id="user-input" 
+                placeholder="Type your message..." 
+                disabled
+                class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 text-gray-100 disabled:opacity-50"
+                autocomplete="off"
+                required
+            >
+            <button 
+                type="submit" 
+                id="send-btn"
+                disabled
+                class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-6 py-2 rounded-lg font-medium transition"
+            >
+                Send
+            </button>
+        </form>
+    </footer>
+
+    <!-- Load Transformers.js ES Module -->
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+
+        // Allow loading from CDN remote host
+        env.allowRemoteModels = true;
+
+        const chatContainer = document.getElementById('chat-container');
+        const statusBubble = document.getElementById('status-bubble');
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        let generator = null;
+        let messageHistory = [];
+
+        // Load lightweight model running on browser WebGPU hardware acceleration
+        async function initAI() {
+            try {
+                // SmolLM2-135M-Instruct: ultra-fast, uncensored instruction model running in-browser
+                generator = await pipeline('text-generation', 'HuggingFaceTB/SmolLM2-135M-Instruct', {
+                    device: 'webgpu', 
+                });
+
+                statusBubble.textContent = "AI model loaded completely! You can now turn off Wi-Fi and use this offline.";
+                statusBubble.className = "bg-green-600 text-white p-3 rounded-lg max-w-lg";
+                
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+            } catch (err) {
+                console.error(err);
+                statusBubble.textContent = "Error loading WebGPU model. Please ensure you are using Google Chrome or Microsoft Edge with WebGPU enabled.";
+                statusBubble.className = "bg-red-600 text-white p-3 rounded-lg max-w-lg";
+            }
+        }
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = userInput.value.trim();
+            if (!text || !generator) return;
+
+            appendMessage(text, 'user');
+            userInput.value = '';
+            
+            // Format input as system instruction and conversation context
+            messageHistory.push({ role: 'user', content: text });
+            
+            const botMessageDiv = appendMessage('Generating response on your GPU...', 'bot');
+
+            try {
+                // Direct in-browser inference
+                const output = await generator(messageHistory, { 
+                    max_new_tokens: 128,
+                    temperature: 0.7,
+                    top_p: 0.9
+                });
+
+                const generatedText = output[0].generated_text.at(-1).content;
+                botMessageDiv.textContent = generatedText;
+                
+                messageHistory.push({ role: 'assistant', content: generatedText });
+            } catch (error) {
+                botMessageDiv.textContent = "Error executing local generation.";
+                console.error(error);
+            }
+        });
+
+        function appendMessage(text, sender) {
+            const messageWrapper = document.createElement('div');
+            messageWrapper.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'}`;
+
+            const messageBubble = document.createElement('div');
+            messageBubble.className = `p-3 rounded-lg max-w-lg ${
+                sender === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-200'
+            }`;
+            messageBubble.textContent = text;
+
+            messageWrapper.appendChild(messageBubble);
+            chatContainer.appendChild(messageWrapper);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            return messageBubble;
+        }
+
+        // Initialize model on startup
+        initAI();
+    </script>
+</body>
+</html>
